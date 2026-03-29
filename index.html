@@ -1194,7 +1194,7 @@ function updateUI() {
     if (!ti) { ti = document.createElement('div'); ti.id = 'turn-indicator'; document.getElementById('game-screen').appendChild(ti); }
     const cn = s.players[s.currentPlayer].name;
     const isMe = s.currentPlayer === me;
-    const verb = isMe ? (s.phase==='draw'?'moet trekken':'bent aan de beurt') : (s.phase==='draw'?'moet trekken':'is aan de beurt');
+    const verb = s.phase==='draw' ? 'moet trekken' : 'is aan de beurt';
     ti.innerHTML = '<span class="turn-name">'+cn+'</span> '+verb;
     // Opponents (all players except me)
     const oa = document.getElementById('opponents-area');
@@ -1380,8 +1380,8 @@ function drawFromPile() {
     if (card) {
         game.players[myPlayerIndex].hand = sortHand(game.players[myPlayerIndex].hand);
         selectedCards = [];
-        if (!isMultiplayer) showDrawnCard(card);
-        else publishGameState();
+        showDrawnCard(card);
+        if (isMultiplayer) publishGameState();
         updateUI();
     }
 }
