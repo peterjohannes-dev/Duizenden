@@ -946,7 +946,8 @@ class Game {
             discardPileTopCard: this.discardPileTopCard,
             turnMeldPoints: this.turnMeldPoints,
             turnMelds: this.turnMelds,
-            roundEnded: this.roundEnded
+            roundEnded: this.roundEnded,
+            abandonedBy: this.abandonedBy || null
         };
     }
     static fromState(s) {
@@ -966,6 +967,7 @@ class Game {
         g.turnMeldPoints = s.turnMeldPoints || 0;
         g.turnMelds = s.turnMelds || [];
         g.roundEnded = s.roundEnded || false;
+        g.abandonedBy = s.abandonedBy || null;
         return g;
     }
 }
@@ -1328,6 +1330,35 @@ function showGameEnd() {
     document.getElementById('game-end-content').innerHTML = h;
     showScreen('game-end-screen');
 }
+function showAbandonEnd(quitterIndex) {
+    const quitter = game.players[quitterIndex];
+    // Winner is the remaining player with the highest score
+    const remaining = game.players.filter((p, i) => i !== quitterIndex);
+    const winner = remaining.reduce((b, p) => p.totalScore > b.totalScore ? p : b);
+    let h = '<h2>Spel afgelopen</h2>';
+    h += '<div class="winner-text" style="color:#c62828;">'+quitter.name+' heeft het spel verlaten.</div>';
+    h += '<div class="winner-text">'+winner.name+' wint met '+winner.totalScore+' punten!</div>';
+    h += '<div class="final-scores">';
+    const sorted = [...game.players].sort((a, b) => {
+        // Quitter always last
+        if (a === quitter) return 1;
+        if (b === quitter) return -1;
+        return b.totalScore - a.totalScore;
+    });
+    for (const p of sorted) {
+        const isWinner = p === winner;
+        const isQuitter = p === quitter;
+        let cls = isWinner ? ' winner' : '';
+        let label = p.totalScore + ' punten';
+        if (isQuitter) { cls = ''; label += ' (verlaten)'; }
+        h += '<div class="final-score-row'+cls+'"><span>'+p.name+'</span><span>'+label+'</span></div>';
+    }
+    h += '</div><button class="continue-btn" onclick="restartGame()">Terug naar start</button>';
+    document.getElementById('game-end-content').innerHTML = h;
+    cleanupOnline();
+    isMultiplayer = false;
+    showScreen('game-end-screen');
+}
 function toggleHelp() { document.getElementById('help-overlay').classList.toggle('visible'); }
 
 // ===== MAIN CONTROLLER =====
@@ -1508,8 +1539,12 @@ function restartGame() {
 
 function quitGame() {
     if (!game) return;
-    showConfirm('Weet je het zeker? Als je nu stopt, verlies je dit spel.', function() {
+    showConfirm('Weet je het zeker? Als je nu stopt, verlies je dit spel.', async function() {
         if (isMultiplayer) {
+            // Signal to other players that this player abandoned
+            game.abandonedBy = myPlayerIndex;
+            game.gameOver = true;
+            await publishGameState();
             cleanupOnline();
             isMultiplayer = false;
         }
@@ -1517,7 +1552,7 @@ function quitGame() {
         aiPlaying = false;
         selectedCards = []; selectedMeldIndex = -1; addingMode = false;
         showScreen('start-screen');
-    });
+    }, 'Ja, verlaat spel');
 }
 
 // ===== ONLINE MULTIPLAYER =====
@@ -1772,6 +1807,13 @@ function subscribeToGameState(gameId) {
             game = Game.fromState(newData.state);
             game.players[myPlayerIndex].hand = sortHand(game.players[myPlayerIndex].hand);
             selectedCards = []; selectedMeldIndex = -1; addingMode = false;
+
+            // Check if someone abandoned the game
+            if (game.abandonedBy !== null && game.abandonedBy !== undefined) {
+                updateUI();
+                showAbandonEnd(game.abandonedBy);
+                return;
+            }
 
             // Check if we need to show screens
             if (game.roundEnded && !wasRoundEnded) {
