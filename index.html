@@ -983,16 +983,26 @@ class AI {
         const p = game.getCurrentPlayer();
         await AI.delay(600);
         const top = game.discardPile.length > 0 ? game.discardPile[game.discardPile.length - 1] : null;
-        let tookPile = false;
-        if (top && AI.shouldTakeDiscardPile(game, p, top)) {
+        const plannedMeld = top ? AI.shouldTakeDiscardPile(game, p, top) : null;
+        if (plannedMeld) {
             game.takeDiscardPile();
-            tookPile = true;
+            updateUI();
+            await AI.delay(800);
+            // First, lay down the planned meld containing the top card
+            const meldIndices = plannedMeld.map(c => p.hand.findIndex(h => h.id === c.id)).filter(i => i !== -1);
+            if (meldIndices.length === plannedMeld.length) {
+                game.layDownMeld(meldIndices);
+                updateUI();
+                await AI.delay(600);
+            }
+            // Then try any other melds
+            if (AI.findAndLayMelds(game, p)) { updateUI(); await AI.delay(600); }
         } else {
             game.drawCard();
+            updateUI();
+            await AI.delay(800);
+            if (AI.findAndLayMelds(game, p)) { updateUI(); await AI.delay(600); }
         }
-        updateUI();
-        await AI.delay(800);
-        if (AI.findAndLayMelds(game, p)) { updateUI(); await AI.delay(600); }
         if (p.hasLaidDown) {
             let added = true;
             while (added) {
@@ -1005,15 +1015,18 @@ class AI {
             const r = game.discard(di);
             updateUI();
             if (r.penalty) {
-                showMessage(p.name + ' krijgt 150 strafpunten! (bovenste kaart niet in nieuwe combinatie neergelegd)');
+                // This should no longer happen, but just in case
+                showMessage(p.name + ' krijgt 150 strafpunten!');
                 await AI.delay(1500);
             }
             if (r.roundOver) return true;
         }
         return false;
     }
+    // Returns the planned meld (array of cards) if AI should take pile, or null if not
     static shouldTakeDiscardPile(game, player, topCard) {
         let directMeld = null;
+        // Try to form a new meld with 2 hand cards + topCard
         for (let i = 0; i < player.hand.length; i++) {
             for (let j = i + 1; j < player.hand.length; j++) {
                 const combo = [player.hand[i], player.hand[j], topCard];
@@ -1021,6 +1034,7 @@ class AI {
             }
             if (directMeld) break;
         }
+        // Try with 1 hand card + 1 pile card + topCard
         if (!directMeld && game.discardPile.length > 1) {
             const pileCards = game.discardPile.slice(0, -1);
             for (let i = 0; i < player.hand.length; i++) {
@@ -1029,6 +1043,7 @@ class AI {
                 }
                 if (directMeld) break;
             }
+            // Try with 2 pile cards + topCard
             if (!directMeld) {
                 for (let i = 0; i < pileCards.length; i++) {
                     for (let j = i + 1; j < pileCards.length; j++) {
@@ -1038,7 +1053,7 @@ class AI {
                 }
             }
         }
-        if (!directMeld) return false;
+        if (!directMeld) return null;
         if (!player.hasLaidDown) {
             const simHand = [...player.hand, ...game.discardPile];
             const usedIds = new Set(directMeld.map(c => c.id));
@@ -1047,9 +1062,9 @@ class AI {
             const extraMelds = AI.findNonOverlappingMelds(remaining);
             let totalPts = meldPts;
             for (const m of extraMelds) totalPts += calculatePoints(m);
-            if (totalPts < 30) return false;
+            if (totalPts < 30) return null;
         }
-        return true;
+        return directMeld;
     }
     static findNonOverlappingMelds(hand) {
         const allMelds = AI.findBestMelds(hand);
